@@ -186,7 +186,6 @@ export async function getTeamStats() {
         stats.length > 0 ? Math.round(stats.reduce((sum, stat) => sum + stat.avg_positivity, 0) / stats.length) : 0
 
       const totalIncidents = stats.reduce((sum, stat) => sum + stat.incident_count, 0)
-      const highRiskUsers = stats.filter((stat) => stat.risk_level === "high").length
 
       return {
         name: chat.title || `Чат ${chat.id}`,
@@ -226,31 +225,7 @@ export async function getRiskUsers() {
   )
 }
 
-// Добавляем функцию для обновления статистики пользователей
-export async function updateUserStats(userId: number, chatId: number, analysisData: EmotionAnalysis) {
-  const { data, error } = await supabaseAdmin
-    .from("user_stats")
-    .upsert(
-      {
-        user_id: userId,
-        chat_id: chatId,
-        total_messages: 1,
-        avg_positivity: analysisData.positivity_score,
-        avg_toxicity: analysisData.toxicity_score,
-      },
-      {
-        onConflict: "user_id,chat_id",
-        ignoreDuplicates: false,
-      },
-    )
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-// Добавляем функцию для получения статистики чата
+// Функция для получения статистики чата
 export async function getChatStats(chatId: number, days = 7) {
   const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 

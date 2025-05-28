@@ -170,7 +170,9 @@ async function analyzeEmotion(text: string): Promise<EmotionAnalysis> {
 // Функция для отправки уведомления HR
 async function notifyHR(chatId: number, incident: any) {
   const settings = await getModerationSettings(chatId)
-  if (!settings?.notify_hr || !settings.hr_chat_id) return
+  const hrChatId = settings?.hr_chat_id || process.env.HR_CHAT_ID
+
+  if (!settings?.notify_hr || !hrChatId) return
 
   const message = `🚨 *Инцидент в корпоративном чате*
 
@@ -188,7 +190,7 @@ async function notifyHR(chatId: number, incident: any) {
 🕐 *Время:* ${new Date().toLocaleString("ru-RU")}`
 
   try {
-    await bot.api.sendMessage(settings.hr_chat_id, message, {
+    await bot.api.sendMessage(Number(hrChatId), message, {
       parse_mode: "Markdown",
     })
   } catch (error) {
@@ -198,12 +200,13 @@ async function notifyHR(chatId: number, incident: any) {
 
 // Команды бота
 bot.command("start", async (ctx) => {
+  const modelInfo = process.env.EMOTION_MODEL || "openai"
   const welcomeMessage = `🤖 *EmoBot - Анализатор эмоций*
 
 Привет! Я бот для анализа эмоций в корпоративных чатах с использованием ИИ.
 
 *Мои возможности:*
-• 🧠 Анализ эмоций через GPT-4
+• 🧠 Анализ эмоций через ${modelInfo === "openai" ? "GPT-4" : "локальные алгоритмы"}
 • ⚠️ Обнаружение конфликтов и стресса
 • 🛡️ Модерация токсичного контента
 • 📈 Статистика по команде
@@ -217,7 +220,6 @@ bot.command("start", async (ctx) => {
   await ctx.reply(welcomeMessage, { parse_mode: "Markdown" })
 })
 
-// В команде /stats заменяем логику на использование новой функции
 bot.command("stats", async (ctx) => {
   const chatId = ctx.chat?.id
   if (!chatId) return
@@ -256,6 +258,30 @@ ${emotionPercentages
     console.error("Ошибка получения статистики:", error)
     await ctx.reply("❌ Ошибка получения статистики")
   }
+})
+
+bot.command("help", async (ctx) => {
+  const helpMessage = `📖 *Справка по EmoBot*
+
+*Основные команды:*
+/start - Запуск бота
+/stats - Статистика эмоций в чате
+/help - Эта справка
+
+*Как работает анализ:*
+• 😡 *Агрессия* - грубые слова, оскорбления
+• 😰 *Стресс* - срочность, перегрузка
+• 😏 *Сарказм* - ирония, скрытая критика
+• ☠️ *Токсичность* - общий уровень негатива
+
+*Используемые технологии:*
+• GPT-4 для анализа текста
+• Машинное обучение для детекции эмоций
+• Автоматическая модерация
+
+*Поддержка:* Обратитесь к администратору`
+
+  await ctx.reply(helpMessage, { parse_mode: "Markdown" })
 })
 
 // Обработка текстовых сообщений

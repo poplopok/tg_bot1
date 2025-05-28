@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDashboardStats, getRecentIncidents, getTeamStats, getRiskUsers, getDetailedStats } from "@/lib/database"
-import { supabaseAdmin } from "@/lib/supabase"
+import { supabaseAdmin } from "@/lib/supabaseAdmin" // Declare the supabaseAdmin variable
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
