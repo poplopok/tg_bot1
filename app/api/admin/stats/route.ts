@@ -1,98 +1,96 @@
 import { type NextRequest, NextResponse } from "next/server"
-
-// Имитация данных (в продакшене использовать базу данных)
-const mockStats = {
-  totalChats: 23,
-  totalMessages: 12847,
-  totalUsers: 156,
-  emotionDistribution: {
-    positivity: 68,
-    neutral: 25,
-    aggression: 4,
-    stress: 2,
-    sarcasm: 1,
-  },
-  incidents: [
-    {
-      id: "1",
-      chatId: -1001234567890,
-      chatTitle: "Разработка",
-      userId: 123456789,
-      username: "alexey_k",
-      message: "Это полный бред, кто это вообще придумал?!",
-      emotion: "aggression",
-      severity: "high",
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "2",
-      chatId: -1001234567891,
-      chatTitle: "Маркетинг",
-      userId: 987654321,
-      username: "maria_s",
-      message: "Ну конечно, отличная идея 👏",
-      emotion: "sarcasm",
-      severity: "medium",
-      timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-    },
-  ],
-  teamStats: [
-    { name: "Разработка", members: 12, emotionScore: 85, trend: "up", incidents: 3 },
-    { name: "Маркетинг", members: 8, emotionScore: 72, trend: "down", incidents: 1 },
-    { name: "Продажи", members: 15, emotionScore: 91, trend: "up", incidents: 0 },
-    { name: "HR", members: 5, emotionScore: 88, trend: "stable", incidents: 0 },
-    { name: "Поддержка", members: 10, emotionScore: 65, trend: "down", incidents: 2 },
-  ],
-  riskUsers: [
-    { userId: 123456789, username: "alexey_k", team: "Разработка", riskLevel: "high", incidents: 5 },
-    { userId: 555666777, username: "ivan_p", team: "Поддержка", riskLevel: "medium", incidents: 2 },
-  ],
-}
+import { getDashboardStats, getRecentIncidents, getTeamStats, getRiskUsers, getDetailedStats } from "@/lib/database"
+import { supabaseAdmin } from "@/lib/supabase"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const period = searchParams.get("period") || "7d"
 
-  // В реальном приложении здесь был бы запрос к базе данных
-  // с фильтрацией по периоду
+  try {
+    // Получаем реальную статистику из базы данных
+    const [dashboardStats, incidents, teamStats, riskUsers] = await Promise.all([
+      getDashboardStats(),
+      getRecentIncidents(10),
+      getTeamStats(),
+      getRiskUsers(),
+    ])
 
-  return NextResponse.json({
-    success: true,
-    data: mockStats,
-    period,
-    generatedAt: new Date().toISOString(),
-  })
+    // Форматируем инциденты для фронтенда
+    const formattedIncidents = incidents.map((incident) => ({
+      id: incident.id,
+      chatId: incident.chat_id,
+      chatTitle: incident.chats?.title || `Чат ${incident.chat_id}`,
+      userId: incident.user_id,
+      username: incident.users?.username || incident.users?.first_name || `User ${incident.user_id}`,
+      message: incident.messages?.text || "",
+      emotion: incident.emotion_analyses?.emotion || "unknown",
+      severity: incident.severity,
+      timestamp: incident.created_at,
+      confidence: incident.emotion_analyses?.confidence || 0,
+      toxicity: incident.emotion_analyses?.toxicity_score || 0,
+    }))
+
+    const stats = {
+      totalChats: dashboardStats.totalChats,
+      totalMessages: dashboardStats.totalMessages,
+      totalUsers: dashboardStats.totalUsers,
+      emotionDistribution: dashboardStats.emotionDistribution,
+      incidents: formattedIncidents,
+      teamStats,
+      riskUsers,
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: stats,
+      period,
+      generatedAt: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error("Ошибка получения статистики:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Ошибка получения данных из базы",
+      },
+      { status: 500 },
+    )
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { action, chatId, userId } = body
+    const { action, incidentId, userId } = body
 
-    // Обработка административных действий
     switch (action) {
       case "resolve_incident":
-        // Отметить инцидент как решенный
+        const { error } = await supabaseAdmin
+          .from("incidents")
+          .update({
+            status: "resolved",
+            resolved_at: new Date().toISOString(),
+            resolved_by: userId,
+          })
+          .eq("id", incidentId)
+
+        if (error) throw error
         return NextResponse.json({ success: true, message: "Инцидент отмечен как решенный" })
 
-      case "warn_user":
-        // Отправить предупреждение пользователю
-        return NextResponse.json({ success: true, message: "Предупреждение отправлено" })
-
       case "generate_report":
-        // Сгенерировать отчет
+        const reportData = await getDetailedStats("7d")
         const report = {
           id: Date.now().toString(),
           period: "7d",
           generatedAt: new Date().toISOString(),
           summary: {
-            totalIncidents: mockStats.incidents.length,
-            criticalIncidents: mockStats.incidents.filter((i) => i.severity === "critical").length,
-            improvementAreas: ["Команда поддержки", "Отдел разработки"],
+            totalIncidents: reportData.incidents.length,
+            criticalIncidents: reportData.incidents.filter((i) => i.severity === "critical").length,
+            improvementAreas: reportData.incidents.length > 10 ? ["Высокая конфликтность"] : [],
             recommendations: [
-              "Провести тимбилдинг для команды поддержки",
+              "Провести тимбилдинг для команды",
               "Организовать тренинг по управлению стрессом",
-              "Пересмотреть рабочую нагрузку в отделе разработки",
+              "Пересмотреть рабочую нагрузку",
             ],
           },
         }
@@ -102,6 +100,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Неизвестное действие" }, { status: 400 })
     }
   } catch (error) {
+    console.error("Ошибка обработки запроса:", error)
     return NextResponse.json(
       {
         success: false,
