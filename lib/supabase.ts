@@ -1,9 +1,20 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Безопасная инициализация клиента Supabase
+let supabaseClient: ReturnType<typeof createClient> | null = null
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+export function getSupabase() {
+  // Создаем клиент только если переменные окружения доступны
+  if (
+    !supabaseClient &&
+    typeof process.env.NEXT_PUBLIC_SUPABASE_URL === "string" &&
+    typeof process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === "string"
+  ) {
+    supabaseClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  }
+
+  return supabaseClient
+}
 
 // Типы для TypeScript
 export interface Message {
@@ -51,7 +62,7 @@ export interface RiskUser {
   user_id: number
   username?: string
   team?: string
-  risk_level: 'low' | 'medium' | 'high'
+  risk_level: "low" | "medium" | "high"
   incidents_count: number
   last_incident?: string
   updated_at?: string
