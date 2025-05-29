@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertTriangle, Bot, MessageSquare, Users, Activity, Settings, ExternalLink } from "lucide-react"
+import { AlertTriangle, Bot, MessageSquare, Users, Activity, Settings, ExternalLink, RefreshCw } from 'lucide-react'
 
 interface BotStats {
   totalChats: number
@@ -21,6 +21,13 @@ interface BotStats {
     emotion: string
     severity: string
     timestamp: string
+    categories: {
+      aggression: number
+      stress: number
+      sarcasm: number
+      toxicity: number
+      positivity: number
+    }
   }>
   teamStats: Array<{
     name: string
@@ -41,9 +48,13 @@ interface BotStats {
 export default function BotDashboard() {
   const [stats, setStats] = useState<BotStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   useEffect(() => {
     fetchStats()
+    // Обновляем статистику каждые 30 секунд
+    const interval = setInterval(fetchStats, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   const fetchStats = async () => {
@@ -52,11 +63,28 @@ export default function BotDashboard() {
       const result = await response.json()
       if (result.success) {
         setStats(result.data)
+        setLastUpdate(new Date())
       }
     } catch (error) {
       console.error("Ошибка загрузки статистики:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const resetStats = async () => {
+    try {
+      const response = await fetch("/api/admin/stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset_stats" }),
+      })
+      const result = await response.json()
+      if (result.success) {
+        await fetchStats()
+      }
+    } catch (error) {
+      console.error("Ошибка сброса статистики:", error)
     }
   }
 
@@ -77,6 +105,9 @@ export default function BotDashboard() {
         <div className="text-center">
           <AlertTriangle className="h-12 w-12 text-red-600 mx-auto mb-4" />
           <p className="text-gray-600">Ошибка загрузки данных</p>
+          <Button onClick={fetchStats} className="mt-4">
+            Попробовать снова
+          </Button>
         </div>
       </div>
     )
@@ -95,8 +126,20 @@ export default function BotDashboard() {
             <Badge variant="secondary" className="bg-green-100 text-green-800">
               Активен в {stats.totalChats} чатах
             </Badge>
+            {lastUpdate && (
+              <Badge variant="outline" className="text-xs">
+                Обновлено: {lastUpdate.toLocaleTimeString("ru-RU")}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center space-x-3">
+            <Button variant="outline" size="sm" onClick={fetchStats}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Обновить
+            </Button>
+            <Button variant="outline" size="sm" onClick={resetStats}>
+              Сбросить статистику
+            </Button>
             <Button variant="outline" size="sm">
               <Settings className="h-4 w-4 mr-2" />
               Настройки
@@ -130,7 +173,7 @@ export default function BotDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalMessages.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">За последние 24 часа</p>
+              <p className="text-xs text-muted-foreground">Всего проанализировано</p>
             </CardContent>
           </Card>
 
@@ -171,7 +214,7 @@ export default function BotDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle>Распределение эмоций</CardTitle>
-                  <CardDescription>Анализ тональности за сегодня</CardDescription>
+                  <CardDescription>Анализ тональности сообщений</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {Object.entries(stats.emotionDistribution).map(([emotion, percentage]) => {
@@ -185,8 +228,6 @@ export default function BotDashboard() {
                             : emotion === "stress"
                               ? "😰"
                               : "😏"
-                    const color =
-                      emotion === "positivity" ? "bg-green-500" : emotion === "neutral" ? "bg-gray-500" : "bg-red-500"
 
                     return (
                       <div key={emotion} className="flex items-center justify-between">
@@ -212,30 +253,38 @@ export default function BotDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {stats.incidents.slice(0, 3).map((incident) => (
-                      <div key={incident.id} className="flex items-start space-x-3 p-3 bg-red-50 rounded-lg">
-                        <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">
-                            {incident.emotion === "aggression"
-                              ? "Агрессия"
-                              : incident.emotion === "stress"
-                                ? "Стресс"
-                                : incident.emotion === "sarcasm"
-                                  ? "Сарказм"
-                                  : incident.emotion}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {incident.chatTitle} • @{incident.username} •{" "}
-                            {new Date(incident.timestamp).toLocaleString("ru-RU")}
-                          </p>
-                          <p className="text-xs text-gray-600 mt-1">"{incident.message}"</p>
-                        </div>
-                        <Badge variant={incident.severity === "critical" ? "destructive" : "secondary"}>
-                          {incident.severity}
-                        </Badge>
+                    {stats.incidents.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>Инцидентов пока нет</p>
+                        <p className="text-xs">Это хорошо! 😊</p>
                       </div>
-                    ))}
+                    ) : (
+                      stats.incidents.slice(0, 3).map((incident) => (
+                        <div key={incident.id} className="flex items-start space-x-3 p-3 bg-red-50 rounded-lg">
+                          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">
+                              {incident.emotion === "aggression"
+                                ? "Агрессия"
+                                : incident.emotion === "stress"
+                                  ? "Стресс"
+                                  : incident.emotion === "sarcasm"
+                                    ? "Сарказм"
+                                    : incident.emotion}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {incident.chatTitle} • @{incident.username} •{" "}
+                              {new Date(incident.timestamp).toLocaleString("ru-RU")}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">"{incident.message.substring(0, 50)}..."</p>
+                          </div>
+                          <Badge variant={incident.severity === "critical" ? "destructive" : "secondary"}>
+                            {incident.severity}
+                          </Badge>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -250,31 +299,39 @@ export default function BotDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {stats.incidents.map((incident) => (
-                    <div key={incident.id} className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center space-x-3">
-                          <Badge variant={incident.severity === "critical" ? "destructive" : "secondary"}>
-                            {incident.emotion}
-                          </Badge>
-                          <span className="text-sm text-muted-foreground">
-                            {incident.chatTitle} • @{incident.username} •{" "}
-                            {new Date(incident.timestamp).toLocaleString("ru-RU")}
-                          </span>
-                        </div>
-                        <Badge variant="outline">{incident.severity}</Badge>
-                      </div>
-                      <p className="text-sm bg-gray-50 p-3 rounded italic">"{incident.message}"</p>
-                      <div className="flex space-x-2 mt-3">
-                        <Button size="sm" variant="outline">
-                          Связаться с HR
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          Отметить как решено
-                        </Button>
-                      </div>
+                  {stats.incidents.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <h3 className="text-lg font-medium mb-2">Инцидентов не зарегистрировано</h3>
+                      <p>Отличная работа! Атмосфера в командах позитивная.</p>
                     </div>
-                  ))}
+                  ) : (
+                    stats.incidents.map((incident) => (
+                      <div key={incident.id} className="border rounded-lg p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center space-x-3">
+                            <Badge variant={incident.severity === "critical" ? "destructive" : "secondary"}>
+                              {incident.emotion}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {incident.chatTitle} • @{incident.username} •{" "}
+                              {new Date(incident.timestamp).toLocaleString("ru-RU")}
+                            </span>
+                          </div>
+                          <Badge variant="outline">{incident.severity}</Badge>
+                        </div>
+                        <p className="text-sm bg-gray-50 p-3 rounded italic">"{incident.message}"</p>
+                        <div className="flex space-x-2 mt-3">
+                          <Button size="sm" variant="outline">
+                            Связаться с HR
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            Отметить как решено
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -288,29 +345,37 @@ export default function BotDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {stats.teamStats.map((team) => (
-                    <div key={team.name} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                        <div>
-                          <p className="font-medium">{team.name}</p>
-                          <p className="text-xs text-muted-foreground">{team.members} сотрудников</p>
+                  {stats.teamStats.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <h3 className="text-lg font-medium mb-2">Команды пока не добавлены</h3>
+                      <p>Добавьте бота в групповые чаты для начала мониторинга.</p>
+                    </div>
+                  ) : (
+                    stats.teamStats.map((team) => (
+                      <div key={team.name} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                          <div>
+                            <p className="font-medium">{team.name}</p>
+                            <p className="text-xs text-muted-foreground">{team.members} сотрудников</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <Progress value={team.emotionScore} className="w-24" />
+                          <span className="text-sm font-medium w-8">{team.emotionScore}%</span>
+                          <Badge
+                            variant={
+                              team.trend === "up" ? "default" : team.trend === "down" ? "destructive" : "secondary"
+                            }
+                          >
+                            {team.trend === "up" ? "↗" : team.trend === "down" ? "↘" : "→"}
+                          </Badge>
+                          {team.incidents > 0 && <Badge variant="destructive">{team.incidents}</Badge>}
                         </div>
                       </div>
-                      <div className="flex items-center space-x-3">
-                        <Progress value={team.emotionScore} className="w-24" />
-                        <span className="text-sm font-medium w-8">{team.emotionScore}%</span>
-                        <Badge
-                          variant={
-                            team.trend === "up" ? "default" : team.trend === "down" ? "destructive" : "secondary"
-                          }
-                        >
-                          {team.trend === "up" ? "↗" : team.trend === "down" ? "↘" : "→"}
-                        </Badge>
-                        {team.incidents > 0 && <Badge variant="destructive">{team.incidents}</Badge>}
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -331,7 +396,7 @@ export default function BotDashboard() {
                       </div>
                       <div>
                         <p className="font-medium">Найдите бота</p>
-                        <p className="text-sm text-muted-foreground">Найдите @EmoBot в Telegram</p>
+                        <p className="text-sm text-muted-foreground">Найдите @emo_analyzer_bot в Telegram</p>
                       </div>
                     </div>
 
@@ -360,8 +425,8 @@ export default function BotDashboard() {
                         4
                       </div>
                       <div>
-                        <p className="font-medium">Настройте уведомления</p>
-                        <p className="text-sm text-muted-foreground">Укажите HR-чат для уведомлений</p>
+                        <p className="font-medium">Начните общение</p>
+                        <p className="text-sm text-muted-foreground">Бот автоматически начнет анализ</p>
                       </div>
                     </div>
                   </div>
